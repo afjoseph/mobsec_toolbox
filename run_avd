@@ -1,0 +1,149 @@
+#!/bin/bash
+
+# Enable function error propagation
+set -o errtrace
+
+trap 'EXIT=$?; log_error " ERR in LINE: $LINENO"; kill_avds; exit $EXIT' ERR
+
+readonly LOG_TAG="$(basename "$0")"
+readonly ERROR_COLOR=$(tput setaf 1)
+readonly INFO_COLOR=$(tput setaf 6)
+readonly RESET_COLOR=$(tput sgr0)
+readonly EXIT_FAIL=1
+readonly EXIT_SUCCESS=0
+
+log_info() {
+    echo  "${INFO_COLOR}[+] [${LOG_TAG}] ${1}${RESET_COLOR}"
+}
+
+log_error() {
+    echo "${ERROR_COLOR}[!] [${LOG_TAG}] ${1}${RESET_COLOR}"
+}
+
+readonly TEST_AVD_NAME="dummy_headless_avd"
+readonly TARGET_AVD_IMAGE="system-images;android-28;default;x86"
+
+readonly BIN_EMULATOR="$ANDROID_HOME/emulator/emulator" # don't use tools/emulator. It became legacy
+readonly BIN_AVDMANAGER="$ANDROID_HOME/tools/bin/avdmanager"
+readonly BIN_SDKMANAGER="$ANDROID_HOME/tools/bin/sdkmanager"
+readonly BIN_ADB="$ANDROID_HOME/platform-tools/adb"
+
+create_test_avd() {
+    log_info "Checking AVDs..."
+
+    if "$BIN_ADB" devices | grep -q emulator ;then
+        log_error "one emulator is still alive. Please kill it before proceeding"
+        exit "$EXIT_FAIL"
+    fi
+
+    if ! "$BIN_AVDMANAGER" --silent list avds 1>/dev/null | grep -q "$TEST_AVD_NAME"; then
+        log_info "Could not find AVD. Creating $TEST_AVD_NAME ..."
+
+        if ! "$BIN_SDKMANAGER" --list | sed -e '/Available Packages/q' | grep -q "$TARGET_AVD_IMAGE"; then
+            log_info "AVD image [$TARGET_AVD_IMAGE] is not installed. Installing..."
+            echo "y" | "$BIN_SDKMANAGER" "$TARGET_AVD_IMAGE" # TODO: Check if we need to download more things
+        fi
+
+        echo "no" | "$BIN_AVDMANAGER" --silent create avd -n "$TEST_AVD_NAME" -k "$TARGET_AVD_IMAGE" 1>/dev/null
+    fi
+}
+
+launch_avd() {
+    log_info "Launching emulator..."
+
+    # `emulator` must be an absolute path to the bin
+    "$BIN_EMULATOR" "@$TEST_AVD_NAME" -no-audio -no-window -no-snapshot -wipe-data &
+
+    log_info "Waiting until emulator goes online..."
+    sleep 10
+
+    # shellcheck disable=SC2016
+    "$BIN_ADB" wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
+
+    if ! "$BIN_ADB" devices | grep -q emulator ;then
+        log_error " Failed to launch emulator"
+        exit "$EXIT_FAIL"
+    fi
+}
+
+check_commands_and_environment() {
+    if [ -z "${ANDROID_HOME}" ]; then
+        log_error "ANDROID_HOME is not set. Exiting..."
+        exit "$EXIT_FAIL"
+    fi
+
+    if [ -z "$ANDROID_NDK_HOME" ]; then
+        log_error "ANDROID_NDK_HOME is not set. Exiting..."
+        exit "$EXIT_FAIL"
+    fi
+
+    if [ ! -x "$(command -v "$BIN_AVDMANAGER")" ]; then
+        log_error "Could not find $BIN_AVDMANAGER"
+        exit "$EXIT_FAIL"
+    fi
+
+    if [ ! -x "$(command -v "$BIN_SDKMANAGER")" ]; then
+        log_error "Could not find $BIN_SDKMANAGER"
+        exit "$EXIT_FAIL"
+    fi
+
+    if [ ! -x "$(command -v "$BIN_EMULATOR")" ]; then
+        log_error "Could not find $BIN_EMULATOR"
+        exit "$EXIT_FAIL"
+    fi
+
+    if [ ! -x "$(command -v "$BIN_ADB")" ]; then
+        log_error "Could not find $BIN_ADB"
+        exit "$EXIT_FAIL"
+    fi
+
+    if [ ! -x "$(command -v tput)" ]; then
+        log_error "Could not find tput"
+        exit "$EXIT_FAIL"
+    fi
+}
+
+usage() {
+    # TODO
+    log_info "stuff"
+    #echo "./$LOG_TAG --citest_output_dir=<PATH> [--only_kill_avds]"
+    #echo " --citest_output_dir     path where the results of the CI test are outputted"
+    #echo
+    #log_info "./$LOG_TAG is used to run a single instrumentation test using a headless simulator"
+    #log_info "The test would hash a string using its hardcoded vectors. This script would output the result in a greppable format"
+}
+
+kill_avds() {
+    log_info "Killing all running emulator instances. Sorry..."
+    "$BIN_ADB" devices | grep --color=never emulator | cut -f1 | while read -r line; do adb -s "$line" emu kill; done
+
+    sleep 3
+
+    log_info "Deleting AVD $TEST_AVD_NAME..."
+    "$BIN_AVDMANAGER" --silent delete avd --name "$TEST_AVD_NAME" >/dev/null 2>&1 || true
+
+    log_info "Killing ADB service..."
+    "$BIN_ADB" kill-server
+
+    log_info "DONE"
+}
+
+main() {
+    log_info "START"
+
+    check_commands_and_environment
+
+    kill_avds
+
+    create_test_avd
+
+    launch_avd
+
+    read -r -p "Do your work and then shut it down by pressing ENTER here"
+
+    kill_avds
+
+    log_info "DONE"
+}
+
+main "$@"
