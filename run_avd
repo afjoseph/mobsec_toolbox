@@ -148,7 +148,7 @@ kill_avds() {
 main() {
     for i in "$@"; do
         case $i in
-            --headless=*)
+            --headless|*)
                 IS_HEADLESS="${i#*=}"
                 shift
                 ;;
