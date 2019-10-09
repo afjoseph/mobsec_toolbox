@@ -104,7 +104,7 @@ def main():
 
     logging.info("Analyzing with R2...")
     global R2
-    R2 = r2pipe.open(args.binary)
+    R2 = r2pipe.open(args.binary, flags=['-2'])
     R2.cmd("aa")
     plt_start, plt_finish = get_plt_addrs(R2)
 
