@@ -2,8 +2,10 @@
 
 # Enable function error propagation
 set -o errtrace
+set -o pipefail
+set -u
 
-trap 'EXIT=$?; log_error " ERR in LINE: $LINENO"; kill_avds; exit $EXIT' ERR
+trap 'EXIT=$?; log_error " ERR in LINE: $LINENO"; on_exit; exit $EXIT' ERR
 trap 'on_exit' SIGINT SIGTERM
 
 readonly LOG_TAG="$(basename "$0")"
@@ -12,7 +14,6 @@ readonly INFO_COLOR=$(tput setaf 6)
 readonly RESET_COLOR=$(tput sgr0)
 readonly EXIT_FAIL=1
 readonly EXIT_SUCCESS=0
-DID_LAUNCH=false
 
 log_info() {
     echo  "${INFO_COLOR}[+] [${LOG_TAG}] ${1}${RESET_COLOR}"
@@ -23,13 +24,13 @@ log_error() {
 }
 
 readonly TEST_AVD_NAME="dummy_avd"
-readonly TARGET_AVD_IMAGE="system-images;android-25;default;x86"
 
 readonly BIN_EMULATOR="$ANDROID_HOME/emulator/emulator" # don't use tools/emulator. It became legacy
 readonly BIN_AVDMANAGER="$ANDROID_HOME/tools/bin/avdmanager"
 readonly BIN_SDKMANAGER="$ANDROID_HOME/tools/bin/sdkmanager"
 readonly BIN_ADB="$ANDROID_HOME/platform-tools/adb"
 
+DID_LAUNCH=false
 IS_HEADLESS=false
 
 on_exit() {
@@ -46,32 +47,44 @@ on_exit() {
 }
 
 create_test_avd() {
+    local -r android_api_level=$1
+    local -r android_abi=$2
+    local target_avd_image=""
+
     log_info "Checking AVDs..."
+
+    if [ -z "$android_api_level" ]; then
+        log_error "Android API level not specified"
+        exit "$EXIT_FAIL"
+    fi
+
 
     if "$BIN_ADB" devices | grep -q emulator ;then
         log_error "one emulator is still alive. Please kill it before proceeding"
         exit "$EXIT_FAIL"
     fi
 
+    target_avd_image="system-images;android-$android_api_level;default;$android_abi"
     if ! "$BIN_AVDMANAGER" --silent list avds 1>/dev/null | grep -q "$TEST_AVD_NAME"; then
         log_info "Could not find AVD. Creating $TEST_AVD_NAME ..."
 
-        if ! "$BIN_SDKMANAGER" --list | sed -e '/Available Packages/q' | grep -q "$TARGET_AVD_IMAGE"; then
-            log_info "AVD image [$TARGET_AVD_IMAGE] is not installed. Installing..."
-            echo "y" | "$BIN_SDKMANAGER" "$TARGET_AVD_IMAGE" # TODO: Check if we need to download more things
+        if ! "$BIN_SDKMANAGER" --list | sed -e '/Available Packages/q' | grep -q "$target_avd_image"; then
+            log_info "AVD image [$target_avd_image] is not installed. Installing..."
+            echo "y" | "$BIN_SDKMANAGER" "$target_avd_image" # TODO: Check if we need to download more things
         fi
 
-        echo "no" | "$BIN_AVDMANAGER" --silent create avd -n "$TEST_AVD_NAME" -k "$TARGET_AVD_IMAGE" 1>/dev/null
+        echo "no" | "$BIN_AVDMANAGER" --silent create avd -n "$TEST_AVD_NAME" -k "$target_avd_image" 1>/dev/null
     fi
 }
 
 launch_avd() {
-    log_info "Launching emulator..."
 
     # `emulator` must be an absolute path to the bin
-    if "$IS_HEADLESS"; then
+    if [ "$IS_HEADLESS" = true ]; then
+        log_info "Launching headless emulator [$TEST_AVD_NAME] ..."
         "$BIN_EMULATOR" "@$TEST_AVD_NAME" -no-audio -no-window -no-snapshot -wipe-data &
     else
+        log_info "Launching emulator with UI [$TEST_AVD_NAME] ..."
         "$BIN_EMULATOR" "@$TEST_AVD_NAME" -no-snapshot -wipe-data &
     fi
 
@@ -132,7 +145,11 @@ usage() {
 
 kill_avds() {
     log_info "Killing all running emulator instances. Sorry..."
-    "$BIN_ADB" devices | grep --color=never emulator | cut -f1 | while read -r line; do adb -s "$line" emu kill; done
+    # "$BIN_ADB" devices command is duplicated to avoid `grep emulator` 
+    #   from signaling ERR which would be caught by our trap function top of the script
+    if "$BIN_ADB" devices | grep emulator >/dev/null 2>&1; then
+        "$BIN_ADB" devices | grep emulator | cut -f1 | while read -r line; do "$BIN_ADB" -s "$line" emu kill; done
+    fi
 
     sleep 3
 
@@ -146,10 +163,21 @@ kill_avds() {
 }
 
 main() {
+    local android_api_level=""
+    local android_abi="x86"
+
     for i in "$@"; do
         case $i in
-            --headless|*)
-                IS_HEADLESS="${i#*=}"
+            --headless)
+                IS_HEADLESS=true
+                shift
+                ;;
+            --android_api_level=*)
+                android_api_level="${i#*=}"
+                shift
+                ;;
+            --android_abi=*)
+                android_abi="${i#*=}"
                 shift
                 ;;
             -h|--help|*)
@@ -166,12 +194,12 @@ main() {
 
     kill_avds
 
-    create_test_avd
+    create_test_avd "$android_api_level" "$android_abi"
 
     launch_avd
 
     DID_LAUNCH=true
-    read -r -p "Do your work and then shut it down by pressing ENTER here\n\n"
+    read -r -p "Do your work and then shut it down by pressing ENTER here"
 
     kill_avds
 

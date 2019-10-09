@@ -8,6 +8,7 @@ usage() {
 	echo "$0 [pem_cert]"
     echo "  Description: "
     echo "  Install CA certificates at system-level"
+    echo "  example: ./install_sys_cert.sh ~/.mitmproxy/mitmproxy-ca-cert.cer"
 }
 
 main() {
@@ -64,6 +65,8 @@ main() {
 
     echo "[+] Done"
     echo '[+] Run "adb shell settings put global http_proxy IP:PORT" to configure proxy'
+    echo "[+] Something like this would work for GM:"
+    printf "\tadb shell settings put global http_proxy 10.0.3.2:3223\n"
 
     rm -rf "${cert_name:?}"
 }
