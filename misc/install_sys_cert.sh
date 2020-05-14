@@ -44,7 +44,7 @@ main() {
 
     if adb remount | grep -v "succeeded" 1>/dev/null; then
         echo "[!] Remount failed."
-        exit 2
+        #exit 2
     fi
 
     echo "[+] Pushing to device's system certificates path [$SYSTEM_CACERT_PATH]"
