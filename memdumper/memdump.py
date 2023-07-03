@@ -7,6 +7,8 @@ import os
 import sys
 import argparse
 import logging
+import json
+import pprint
 
 import frida
 import frida.core
@@ -15,20 +17,31 @@ import utils
 
 def main():
     parser = argparse.ArgumentParser(
-        prog='memdumper',
+        prog="memdumper",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        description=textwrap.dedent(""))
+        description=textwrap.dedent(""),
+    )
 
-    parser.add_argument('-p', '--process',
-                        help='the process that you will be injecting to')
-    parser.add_argument('-o', '--outdir', type=str, metavar="dir",
-                        help='provide full output directory path. (def: \'dump\')')
-    parser.add_argument('-U', '--usb', action='store_true',
-                        help='device connected over usb')
-    parser.add_argument('-v', '--verbose', action='store_true',
-                        help='verbose')
-    parser.add_argument('-r', '--read-only', action='store_true',
-                        help="dump read-only parts of memory. More data, more errors")
+    parser.add_argument(
+        "-p", "--process", help="the process that you will be injecting to"
+    )
+    parser.add_argument(
+        "-o",
+        "--outdir",
+        type=str,
+        metavar="dir",
+        help="provide full output directory path. (def: 'dump')",
+    )
+    parser.add_argument(
+        "-U", "--usb", action="store_true", help="device connected over usb"
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="verbose")
+    parser.add_argument(
+        "-r",
+        "--read-only",
+        action="store_true",
+        help="dump read-only parts of memory. More data, more errors",
+    )
     arguments = parser.parse_args()
 
     # Define Configurations
@@ -39,16 +52,14 @@ def main():
     if arguments.outdir:
         outdir = arguments.outdir
 
-    PERMS = 'rw-'
+    PERMS = "rwx"
     if arguments.read_only:
-        PERMS = 'r--'
+        PERMS = "r--"
 
     if arguments.verbose:
-        logging.basicConfig(format='%(levelname)s:%(message)s',
-                            level=logging.DEBUG)
+        logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.DEBUG)
     else:
-        logging.basicConfig(
-            format='%(levelname)s:%(message)s', level=logging.INFO)
+        logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
 
     session = None
     try:
@@ -79,42 +90,46 @@ def main():
           }
         };
 
-        """)
+        """
+    )
     script.on("message", utils.frida_on_message)
     script.load()
 
-    agent = script.exports
+    agent = script.exports_sync
     mem_ranges = agent.enumerate_ranges(PERMS)
 
     # TODO: Make an extension to dump all region names
     # import json
-    # logging.debug("All sections:")
-    # logging.debug("===============")
-    # logging.debug(json.dumps(
-    # {"path": mem_range["file"]["path"], "base": base, "size": size}, indent=4, sort_keys=True))
-    # logging.debug("file_path: %s", str(mem_range["file"]["path"]))
+    logging.debug("All sections:")
+    logging.debug("===============")
+    pprint.pprint(mem_ranges)
 
     # Performing the memory dump
     for idx, mem_range in enumerate(mem_ranges):
         base = mem_range["base"]
         size = mem_range["size"]
-        if (not "file" in mem_range
-                or not "path" in mem_range["file"]):
-            continue
+        # if (not "file" in mem_range
+        #         or not "path" in mem_range["file"]):
+        #     continue
 
-        if not "dalvik-main" in mem_range["file"]["path"]:
-            continue
+        # if not "dalvik-main" in mem_range["file"]["path"]:
+        #     continue
+
+        filename = ""
+        if "file" in mem_range and "path" in mem_range["file"]:
+            filename = mem_range["file"]["path"].split("/")[-1]
+        else:
+            filename = "unknown"
 
         if size > max_chunk_size:
             logging.debug("Too big, splitting the dump into chunks")
-            utils.split_big_chunk(
-                agent, base, size, max_chunk_size, outdir)
+            utils.split_big_chunk(agent, base, size, max_chunk_size, outdir, filename)
             continue
-        utils.dump_to_file(
-            agent, base, size, outdir)
+        utils.dump_to_file(agent, base, size, outdir, filename)
         idx += 1
-        utils.print_progress(idx, len(mem_ranges), prefix='Progress:',
-                             suffix='Complete', max_percent=50)
+        utils.print_progress(
+            idx, len(mem_ranges), prefix="Progress:", suffix="Complete", max_percent=50
+        )
     logging.info("Done")
 
 

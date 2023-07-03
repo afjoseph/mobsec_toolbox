@@ -27,12 +27,12 @@ def frida_on_message(message, data):
     print("[frida_on_message] message:", message, "data:", data)
 
 
-def dump_to_file(agent, base, size, outdir):
+def dump_to_file(agent, base, size, outdir, filename):
     """
     Reading bytes from session and saving it to a file
     """
     try:
-        filename = str(base) + '_dump.data'
+        filename = str(base) + '_{}_dump.data'.format(filename)
         dump = agent.read_memory(base, size)
         fp = open(os.path.join(outdir, filename), 'wb')
         fp.write(dump)
@@ -42,7 +42,7 @@ def dump_to_file(agent, base, size, outdir):
         logging.error("Oops, memory access violation!")
 
 
-def split_big_chunk(agent, base, size, max_size, directory):
+def split_big_chunk(agent, base, size, max_size, directory, filename):
     times = size // max_size
     diff = size % max_size
 
@@ -55,10 +55,10 @@ def split_big_chunk(agent, base, size, max_size, directory):
     for _ in range(int(times)):
         logging.debug("Save bytes: 0x%X till 0x%X",
                       int(cur_base), int(cur_base+max_size))
-        dump_to_file(agent, cur_base, max_size, directory)
+        dump_to_file(agent, cur_base, max_size, directory, filename)
         cur_base = cur_base + max_size
 
     if diff != 0:
         logging.debug("Save bytes: 0x%x till 0x%x",
                       int(cur_base), int(cur_base + diff))
-        dump_to_file(agent, cur_base, diff, directory)
+        dump_to_file(agent, cur_base, diff, directory, filename)
