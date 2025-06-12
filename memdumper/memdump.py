@@ -7,7 +7,6 @@ import os
 import sys
 import argparse
 import logging
-import json
 import pprint
 
 import frida
@@ -52,7 +51,7 @@ def main():
     if arguments.outdir:
         outdir = arguments.outdir
 
-    PERMS = "rwx"
+    PERMS = "rw-"
     if arguments.read_only:
         PERMS = "r--"
 

@@ -165,17 +165,13 @@ kill_avds() {
 
 main() {
     local android_api_level=""
-    local android_abi="x86"
-    local api_type="default"
+    local android_abi="arm64-v8a"
+    local api_type="google_apis"
 
     for i in "$@"; do
         case $i in
             --headless)
                 IS_HEADLESS=true
-                shift
-                ;;
-            --use_google_apis)
-                api_type='google_apis'
                 shift
                 ;;
             --android_api_level=*)
